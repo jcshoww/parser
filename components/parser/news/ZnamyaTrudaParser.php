@@ -6,6 +6,8 @@ use app\components\Helper;
 use app\components\parser\NewsPost;
 use app\components\parser\NewsPostItem;
 use app\components\parser\ParserInterface;
+use DateTime;
+use DateTimeZone;
 use Exception;
 use lanfix\parser\Parser;
 use lanfix\parser\src\Element;
@@ -30,7 +32,6 @@ class ZnamyaTrudaParser implements ParserInterface
      */
     public static function run(): array
     {
-        date_default_timezone_set('UTC');
         return self::getNewsData();
     }
 
@@ -85,7 +86,9 @@ class ZnamyaTrudaParser implements ParserInterface
         $description = $item['extra']['short_subtitle'];
 
         /** Get item datetime */
-        $createdAt = date('Y-m-d H:i:s', strtotime($item['extra']['created_at']));
+        $createdAt = new DateTime($item['extra']['created_at']);
+        $createdAt->setTimezone(new DateTimeZone('UTC'));
+        $createdAt = $createdAt->format('c');
 
         /** Get item preview picture */
         $mediaParser = new Parser($item['media'], true);
