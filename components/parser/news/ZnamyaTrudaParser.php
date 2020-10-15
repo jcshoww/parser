@@ -60,7 +60,7 @@ class ZnamyaTrudaParser implements ParserInterface
 
         $result = [];
         $news = $news['results']['objects'];
-        foreach ($news as $key => $item) {
+        foreach ($news as $item) {
             $result[] = self::getPostDetail($item);
         }
 
@@ -128,28 +128,6 @@ class ZnamyaTrudaParser implements ParserInterface
     {
         /** Parse item content */
         $contentBlocks = $content->getChildren();
-        if (isset($contentBlocks[1])) {
-            /** Item header container with title and image */
-            $itemHeader = $contentBlocks[1];
-
-            /** Get h1 */
-            $h1 = $itemHeader->findOne('h1');
-            $post->addItem(new NewsPostItem(NewsPostItem::TYPE_HEADER, $h1->asText(),
-                null, null, 1, null));
-
-            /** Get detail image */
-            if ($detailImage = $itemHeader->findOne('.topic_image img')) {
-                $detailImage = static::SITE_URL . trim($detailImage->getAttribute('src') ?: '');
-                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_IMAGE, null,
-                    $detailImage, null, null, null));
-            }
-
-            /** Get lead p as 2 level header */
-            if ($h2 = $itemHeader->findOne('.col-md-8 .lead')) {
-                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_HEADER, $h2->asText(),
-                    null, null, 2, null));
-            }
-        }
 
         /** Next container appends, if owl-gallery used */
         $bodyKey = 2;
