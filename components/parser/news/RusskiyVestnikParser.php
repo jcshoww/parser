@@ -56,6 +56,9 @@ class RusskiyVestnikParser implements ParserInterface
      */
     public static function getNewsData(): array
     {
+        /** Вырубаем нотисы */
+        error_reporting(E_ALL & ~E_NOTICE);
+
         /** Get main page */
         $curl = Helper::getCurl();
         $mainPage = $curl->get(static::SITE_URL);
