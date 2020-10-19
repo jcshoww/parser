@@ -46,6 +46,9 @@ class ZnamyaTrudaParser implements ParserInterface
      */
     public static function getNewsData(int $offset = 0, int $limit = 100): array
     {
+        /** Вырубаем нотисы */
+        error_reporting(E_ALL & ~E_NOTICE);
+
         /** Get news list */
         $curl = Helper::getCurl();
         $curlResult = $curl->get(static::SITE_URL . "/edw/api/data-marts/32/entities.json?_=26708281&limit=$limit&offset=$offset&view_component=publication_list");
