@@ -3,8 +3,6 @@
 namespace app\components\parser\news;
 
 use app\components\Helper;
-use app\components\helper\secreate\DataCleaner;
-use app\components\helper\secreate\DOMNodeParse;
 use app\components\parser\NewsPost;
 use app\components\parser\NewsPostItem;
 use app\components\parser\ParserInterface;
@@ -24,8 +22,6 @@ use Symfony\Component\DomCrawler\UriResolver;
  */
 class UgorskinfoParser implements ParserInterface
 {
-    use DOMNodeParse, DataCleaner;
-
     public const USER_ID = 2;
 
     public const FEED_ID = 2;
@@ -50,6 +46,9 @@ class UgorskinfoParser implements ParserInterface
      */
     public static function getNewsData(): array
     {
+        /** Вырубаем нотисы */
+        error_reporting(E_ALL & ~E_NOTICE);
+
         /** Get RSS news list */
         $curl = Helper::getCurl();
         $newsList = $curl->get(static::SITE_URL . "/index.php/novosti?format=feed&type=rss");
@@ -117,8 +116,6 @@ class UgorskinfoParser implements ParserInterface
 
         /** @var NewsPost */
         $post = new NewsPost(static::class, $title, htmlspecialchars_decode($description), $createdAt, $link, null);
-
-        $post->addItem(new NewsPostItem(NewsPostItem::TYPE_HEADER, $title, null, null, 2));
 
         /** Detail info crawler creation */
         $detailInfo = $itemCrawler->filterXPath('//description')->html();
@@ -248,5 +245,116 @@ class UgorskinfoParser implements ParserInterface
                 self::parseNode($post, $child);
             }
         }
+    }
+    
+    /**
+     * Function cleans text from bad symbols
+     * 
+     * @param string $text
+     * 
+     * @return string|null
+     */
+    protected static function cleanText(string $text): ?string
+    {
+        $transformedText = preg_replace('/\r\n/', '', $text);
+        $transformedText = preg_replace('/\<script.*\<\/script>/', '', $transformedText);
+        $transformedText = html_entity_decode($transformedText);
+        return preg_replace('/^\p{Z}+|\p{Z}+$/u', '', htmlspecialchars_decode($transformedText));
+    }
+
+    /**
+     * Function clean dangerous urls
+     * 
+     * @param string $url
+     * 
+     * @return string
+     */
+    protected static function cleanUrl(string $url): string
+    {
+        return filter_var($url, FILTER_SANITIZE_ENCODED|FILTER_SANITIZE_FULL_SPECIAL_CHARS);
+    }
+
+    /**
+     * Function check if node text content not empty
+     * 
+     * @param DOMNode $node
+     * 
+     * @return bool
+     */
+    protected static function hasActualText(DOMNode $node): bool
+    {
+        return trim($node->textContent) !== '';
+    }
+
+    /**
+     * Function check if node text content not empty
+     * 
+     * @param DOMNode $node
+     * 
+     * @return bool
+     */
+    protected static function hasText(DOMNode $node): bool
+    {
+        return trim($node->textContent) !== '';
+    }
+
+    /**
+     * Function check if node is <p></p>
+     * 
+     * @param DOMNode
+     * 
+     * @return bool
+     */
+    protected static function isParagraphType(DOMNode $node): bool
+    {
+        return isset($node->tagName) === true && $node->tagName === 'p';
+    }
+
+    /**
+     * Function check if node is quote
+     * 
+     * @param DOMNode
+     * 
+     * @return bool
+     */
+    protected static function isQuoteType(DOMNode $node): bool
+    {
+        return isset($node->tagName) === true && in_array($node->tagName, ['blockquote']);
+    }
+
+    /**
+     * Function check if node is <a></a>
+     * 
+     * @param DOMNode
+     * 
+     * @return bool
+     */
+    protected static function isLinkType(DOMNode $node): bool
+    {
+        return isset($node->tagName) === true && $node->tagName === 'a';
+    }
+
+    /**
+     * Function check if node is image
+     * 
+     * @param DOMNode
+     * 
+     * @return bool
+     */
+    protected static function isImageType(DOMNode $node): bool
+    {
+        return isset($node->tagName) === true && $node->tagName === 'img';
+    }
+
+    /**
+     * Function check if node is #text
+     * 
+     * @param DOMNode
+     * 
+     * @return bool
+     */
+    protected static function isText(DOMNode $node): bool
+    {
+        return $node->nodeName === '#text';
     }
 } 
