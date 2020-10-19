@@ -51,6 +51,9 @@ class MkSamaraParser implements ParserInterface
      */
     public static function getNewsData(int $limit = 100): array
     {
+        /** Вырубаем нотисы */
+        error_reporting(E_ALL & ~E_NOTICE);
+
         /** Get main page */
         $curl = Helper::getCurl();
         $mainPage = $curl->get(static::SITE_URL . "/news/");
@@ -343,12 +346,14 @@ class MkSamaraParser implements ParserInterface
      * 
      * @param string $text
      * 
-     * @return string
+     * @return string|null
      */
-    protected static function cleanText(string $text): string
+    protected static function cleanText(string $text): ?string
     {
-        $text = preg_replace('/\r\n/', '', $text);
-        return preg_replace('/^\p{Z}+|\p{Z}+$/u', '', htmlspecialchars_decode($text));
+        $transformedText = preg_replace('/\r\n/', '', $text);
+        $transformedText = preg_replace('/\<script.*\<\/script>/', '', $transformedText);
+        $transformedText = html_entity_decode($transformedText);
+        return preg_replace('/^\p{Z}+|\p{Z}+$/u', '', htmlspecialchars_decode($transformedText));
     }
 
     /**
@@ -360,8 +365,19 @@ class MkSamaraParser implements ParserInterface
      */
     protected static function cleanUrl(string $url): string
     {
-        $url = urlencode($url);
-        return str_replace(array('%3A', '%2F'), array(':', '/'), $url);
+        return filter_var($url, FILTER_SANITIZE_ENCODED|FILTER_SANITIZE_FULL_SPECIAL_CHARS);
+    }
+
+    /**
+     * Function check if node text content not empty
+     * 
+     * @param DOMNode $node
+     * 
+     * @return bool
+     */
+    protected static function hasActualText(DOMNode $node): bool
+    {
+        return trim($node->textContent) !== '';
     }
 
     /**
@@ -385,7 +401,7 @@ class MkSamaraParser implements ParserInterface
      */
     protected static function isParagraphType(DOMNode $node): bool
     {
-        return $node->tagName === 'p';
+        return isset($node->tagName) === true && $node->tagName === 'p';
     }
 
     /**
@@ -397,7 +413,7 @@ class MkSamaraParser implements ParserInterface
      */
     protected static function isQuoteType(DOMNode $node): bool
     {
-        return in_array($node->tagName, ['blockquote', 'em']);
+        return isset($node->tagName) === true && in_array($node->tagName, ['blockquote']);
     }
 
     /**
@@ -409,7 +425,7 @@ class MkSamaraParser implements ParserInterface
      */
     protected static function isLinkType(DOMNode $node): bool
     {
-        return $node->tagName === 'a';
+        return isset($node->tagName) === true && $node->tagName === 'a';
     }
 
     /**
@@ -421,7 +437,7 @@ class MkSamaraParser implements ParserInterface
      */
     protected static function isImageType(DOMNode $node): bool
     {
-        return $node->tagName === 'img';
+        return isset($node->tagName) === true && $node->tagName === 'img';
     }
 
     /**
