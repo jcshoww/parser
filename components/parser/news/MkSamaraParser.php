@@ -253,6 +253,17 @@ class MkSamaraParser implements ParserInterface
         self::removeNodes($crawler, '//div[contains(@class, "article__in-newspaper")]');
         self::removeNodes($crawler, '//div[contains(@class, "article__authors")]');
 
+        /** Get picture */
+        if (empty($post->image) === true) {
+            $imageUrl = '';
+            $imageNode = $crawler->filterXPath('//img[1]')->getNode(0);
+            if (! empty($imageNode) === true) {
+                $imageUrl = self::cleanUrl($imageNode->getAttribute('src') ?: '');
+                $imageNode->parentNode->removeChild($imageNode);
+            }
+            $post->image = $imageUrl;
+        }
+
         foreach ($crawler->getNode(0)->childNodes as $item) {
             self::parseNode($post, $item);
         }
