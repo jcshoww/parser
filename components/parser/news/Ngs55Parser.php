@@ -89,7 +89,7 @@ class Ngs55Parser implements ParserInterface
      * 
      * @return NewPost
      */
-    public static function getPostDetail(SimpleXMLElement $item)
+    public static function getPostDetail(SimpleXMLElement $item): NewsPost
     {
         /** Get item detail link */
         $link = self::cleanUrl($item->link);
