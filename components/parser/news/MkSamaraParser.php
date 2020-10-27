@@ -27,6 +27,8 @@ class MkSamaraParser implements ParserInterface
 
     public const FEED_ID = 2;
 
+    public const TEXT_SIMILARITY_LIMIT = 98;
+
     public const SITE_URL = 'https://samara.mk.ru';
 
     /** @var array */
@@ -321,10 +323,14 @@ class MkSamaraParser implements ParserInterface
         if (self::isText($node)) {
             if (self::hasText($node)) {
                 $textContent = self::cleanText($node->textContent);
-                if (empty(trim($textContent)) === true) {
+                similar_text($textContent, $post->description, $similarity);
+                if ($similarity >= self::TEXT_SIMILARITY_LIMIT) {
                     return;
                 }
-                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+
+                if (self::hasActualText($textContent) === true) {
+                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                }
             }
             return;
         }
@@ -341,10 +347,14 @@ class MkSamaraParser implements ParserInterface
         //Get entire node text if we not need to parse any special entities, go recursive otherwise
         if ($needRecursive === false) {
             $textContent = self::cleanText($node->textContent);
-            if (empty(trim($textContent)) === true) {
+            similar_text($textContent, $post->description, $similarity);
+            if ($similarity >= self::TEXT_SIMILARITY_LIMIT) {
                 return;
             }
-            $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+
+            if (self::hasActualText($textContent) === true) {
+                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+            }
         } else {
             foreach($node->childNodes as $child) {
                 self::parseNode($post, $child);
@@ -361,10 +371,14 @@ class MkSamaraParser implements ParserInterface
      */
     protected static function cleanText(string $text): ?string
     {
-        $transformedText = preg_replace('/\r\n/', '', $text);
-        $transformedText = preg_replace('/\<script.*\<\/script>/', '', $transformedText);
+        $transformedText = preg_replace('/(^[\r\n]*|[\r\n]+)[\s\t]*[\r\n]+/m', '', $text);
+        $transformedText = preg_replace('/\<script.*\<\/script>/m', '', $transformedText);
+        $transformedText = mb_convert_encoding($transformedText, 'UTF-8', mb_detect_encoding($transformedText));
         $transformedText = html_entity_decode($transformedText);
-        return preg_replace('/^\p{Z}+|\p{Z}+$/u', '', htmlspecialchars_decode($transformedText));
+        $transformedText = preg_replace('/^\p{Z}+|\p{Z}+$/u', '', htmlspecialchars_decode($transformedText));
+        $transformedText = preg_replace('/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/m', '', $transformedText);
+        $transformedText = preg_replace('/\xe2\xa0\x80/m', '', $transformedText);
+        return $transformedText;
     }
 
     /**
@@ -376,19 +390,21 @@ class MkSamaraParser implements ParserInterface
      */
     protected static function cleanUrl(string $url): string
     {
-        return filter_var($url, FILTER_SANITIZE_ENCODED|FILTER_SANITIZE_FULL_SPECIAL_CHARS);
+        return preg_replace_callback('/[^\x21-\x7f]/', function ($match) {
+            return rawurlencode($match[0]);
+        }, $url);
     }
 
     /**
-     * Function check if node text content not empty
+     * Function check if string has actual text
      * 
-     * @param DOMNode $node
+     * @param string|null $text
      * 
      * @return bool
      */
-    protected static function hasActualText(DOMNode $node): bool
+    protected static function hasActualText(?string $text): bool
     {
-        return trim($node->textContent) !== '';
+        return trim($text, "⠀ \t\n\r\0\x0B\xC2\xA0") !== '';
     }
 
     /**
