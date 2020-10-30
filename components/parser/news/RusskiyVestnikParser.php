@@ -11,8 +11,6 @@ use DateTimeZone;
 use DOMElement;
 use DOMNode;
 use Exception;
-use lanfix\parser\Parser;
-use lanfix\parser\src\Element;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\DomCrawler\UriResolver;
 
