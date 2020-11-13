@@ -58,10 +58,10 @@ class SvejayaGazetaParser implements ParserInterface
         while (self::$parsedCount < $limit) {
             /** Get RSS news list */
             $curl = Helper::getCurl();
-            do {
-                $newsList = $curl->get(static::SITE_URL . "/feed?paged=$pageNum");
-            } while (is_bool($newsList));
-
+            $newsList = $curl->get(static::SITE_URL . "/feed?paged=$pageNum");
+            if (is_bool($newsList)){
+                break;
+            }
             /** Parse news from RSS */
             $newsListCrawler = new Crawler($newsList);
             $news = $newsListCrawler->filterXPath('//item');
@@ -71,6 +71,9 @@ class SvejayaGazetaParser implements ParserInterface
 
                 $posts[] = $post;
                 self::$parsedCount++;
+                if(self::$parsedCount > $limit){
+                    break 2;
+                }
             }
 
             $pageNum++;
@@ -130,22 +133,8 @@ class SvejayaGazetaParser implements ParserInterface
             $imageBlock->parentNode->removeChild($imageBlock);
         }
 
-        /** Get description */
-        //:NOTE some extremely bad formatted <p></p> tags can't be dealed by Xpath
-        $description = '';
-        while (strlen($description) < 10) {
-            $descriptionBlock = $crawler->filterXpath('
-                //div[contains(@class,"entry-content-wrap")]
-                //div[contains(@class,"read-details")]
-                //*[normalize-space(.//text())]
-                //text()[not(.="")]
-            ')->getNode(0);
-            $description .= self::cleanText($descriptionBlock->textContent);
-            $descriptionBlock->parentNode->removeChild($descriptionBlock);
-        }
-
         /** @var NewsPost */
-        $post = new NewsPost(static::class, $title, $description, $createdAt, $link, $picture);
+        $post = new NewsPost(static::class, $title, "EMPTY", $createdAt, $link, $picture);
 
         $detailPage = $crawler->filterXPath('
             //div[contains(@class,"entry-content-wrap")]
@@ -251,7 +240,11 @@ class SvejayaGazetaParser implements ParserInterface
                 $textContent = self::cleanText($node->textContent);
 
                 if (self::hasActualText($textContent) === true) {
-                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                    if($post->description === "EMPTY") {
+                        $post->description = self::cleanText($node->textContent);
+                    }else{
+                        $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                    }
                 }
             }
             return;
@@ -271,7 +264,11 @@ class SvejayaGazetaParser implements ParserInterface
             $textContent = self::cleanText($node->textContent);
 
             if (self::hasActualText($textContent) === true) {
-                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                if($post->description === "EMPTY") {
+                    $post->description = self::cleanText($node->textContent);
+                }else{
+                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                }
             }
         } else {
             foreach($node->childNodes as $child) {
@@ -322,7 +319,7 @@ class SvejayaGazetaParser implements ParserInterface
      */
     protected static function hasActualText(?string $text): bool
     {
-        return trim($text, "⠀ \t\n\r\0\x0B\xC2\xA0") !== '';
+        return trim($text, "⠀ \t\n\r\0\x0B\xC2\xA0.,") !== '';
     }
 
     /**
