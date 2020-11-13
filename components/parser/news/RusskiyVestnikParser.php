@@ -60,67 +60,20 @@ class RusskiyVestnikParser implements ParserInterface
         /** Get main page */
         $curl = Helper::getCurl();
         $mainPage = $curl->get(static::SITE_URL);
-        if (! $mainPage) {
+        if (!$mainPage) {
             throw new Exception('Can not read main page');
         }
 
         /** Parse tables from main page */
         $tablesCrawler = new Crawler($mainPage);
-        $tables = $tablesCrawler->filter('body > table');
+        $tables = $tablesCrawler->filter('body > table:nth-child(6) > tr:nth-child(1) > td:nth-child(3) > table:nth-child(2) > tr > td > div');
 
-        foreach ($tables as $key => $table) {
-            if ($key === self::$tableWithMainPostIndex) {
-                self::parseMainPost($table);
-            } elseif ($key === self::$tableWithPostFeedIndex) {
-                self::parsePostsFeed($table);
-            }
+        foreach ($tables->filter("div[align=\"justify\"]") as $item) {
+            self::createPost($item);
+
         }
 
         return self::$posts;
-    }
-
-    /**
-     * Function parse main post from table content
-     * 
-     * @param DOMElement $item
-     * @return void
-     */
-    public static function parseMainPost(DOMElement $item): void
-    {
-        $itemCrawler = new Crawler($item);
-
-        /** Get first table td with main content */
-        $td = $itemCrawler->filterXPath('//td')->getNode(0);
-
-        /** Get first table from this td */
-        $innerTable = $td->getElementsByTagName('table')->item(0);
-
-        /** Get first td from this inner table */
-        $dataContainer = $innerTable->getElementsByTagName('td')->item(0);
-
-        self::createPost($dataContainer);
-    }
-
-    /**
-     * Function parse posts feed for required content
-     * 
-     * @param DOMElement $item
-     * @return void
-     */
-    public static function parsePostsFeed(DOMElement $item): void
-    {
-        $itemCrawler = new Crawler($item);
-
-        self::removeNodes($itemCrawler, '//br');
-        self::removeNodes($itemCrawler, '//hr');
-
-        /** Get first table td with main content */
-        $newsContainer = $itemCrawler->filter('td div[align=justify]')->getNode(0);
-        if (! empty($newsContainer) === true) {
-            foreach ($newsContainer->getElementsByTagName('div') as $node) {
-                self::createPost($node, 'b');
-            }
-        }
     }
 
     /**
@@ -133,46 +86,15 @@ class RusskiyVestnikParser implements ParserInterface
      */
     public static function createPost(DOMElement $item, string $titleTag = 'font'): void
     {
-        $image = '';
-        $description = '';
-        $h2 = '';
-        foreach ($item->childNodes as $childNode) {
-            if (self::isImageType($childNode) && $childNode->getAttribute('src') === 'images/2.gif') {
-                continue;
-            }
-
-            // Get post image
-            if (self::isImageType($childNode)) {
-                $image = self::cleanUrl($childNode->getAttribute('src') ?: '');
-                $image = UriResolver::resolve($image, static::SITE_URL);
-                continue;
-            }
-
-            /** Get extremely bad formatted post title */
-            if ($childNode->tagName === $titleTag) {
-                foreach ($childNode->childNodes as $subnode) {
-                    if (self::isText($subnode) && self::hasActualText($subnode->textContent)) {
-                        $title = $subnode->textContent;
-                    } elseif (isset($subnode->tagName) && $subnode->tagName === 'font') {
-                        if (empty($title) === true) {
-                            $title = $subnode->textContent;
-                        } else {
-                            $h2 = $subnode->textContent;
-                        }
-                    }
-                }
-                continue;
-            }
-
-            if (self::isLinkType($childNode)) {
-                $link = UriResolver::resolve($childNode->getAttribute('href'), static::SITE_URL);
-                continue;
-            }
-
-            if (self::isText($childNode)) {
-                $description .= self::cleanText($childNode->textContent);
-            }
+        $crawler = new Crawler($item);
+        $image = null;
+        $description = "EMPTY";
+        $link = $crawler->filter("a");
+        if ($link->count() === 0) {
+            throw new Exception("got no link");
         }
+
+        $link = self::SITE_URL . "/" . $link->attr("href");
 
         /** Detail page parser creation */
         $curl = Helper::getCurl();
@@ -180,59 +102,53 @@ class RusskiyVestnikParser implements ParserInterface
 
         $detailCrawler = new Crawler($curlResult);
 
+        $page = $detailCrawler->filter("body > table:nth-child(3) > tr > td");
         /** Get item datetime */
-        $titleBlock = $detailCrawler->filter('div[align=justify] b')->getNode(0);
-        $date = preg_replace('/\r\n/', '', $titleBlock->textContent);
+        $titleBlock = $page->filter('b');
+        if ($titleBlock->count() === 0) {
+            throw new Exception(" title not found");
+        }
+        if ($titleBlock->filter("b > font")->count() !== 0) {
+            $description = $titleBlock->filter("font")->text();
+            $title = trim(explode(":", $titleBlock->text())[1]);
+
+            $title = str_replace($description, "", $title);
+
+        } else {
+            $titleArr = explode(":", $titleBlock->text());
+            unset($titleArr[0]);
+            $title = trim(implode(": ", $titleArr));
+        }
+
+        $date = preg_replace('/\r\n/', '', trim(explode(":", $titleBlock->text())[0]));
         $date = preg_replace('/([^\:]+)(\:)(.+)/', '$1', $date);
         $createdAt = new DateTime($date . date('H:i:s'));
         $createdAt->setTimezone(new DateTimeZone('UTC'));
         $createdAt = $createdAt->format('c');
 
-        /** @var NewsPost */
-        $post = new NewsPost(static::class, $title, htmlspecialchars_decode($description), $createdAt, $link, $image);
+        $post = new NewsPost(static::class, $title, $description, $createdAt, $link, $image);
 
-        if (! empty($h2) === true) {
-            $post->addItem(new NewsPostItem(NewsPostItem::TYPE_HEADER, $h2,
-                null, null, 2));
+        foreach ($page->getNode(0)->childNodes as $node) {
+            self::parseNode($post, $node);
         }
-
-        self::parsePostDetails($post, $detailCrawler);
 
         self::$posts[] = $post;
     }
 
-    /**
-     * Function get post detail data
-     * 
-     * @param NewsPost $post
-     * @param Crawler $crawler
-     * 
-     * @return void
-     */
-    public static function parsePostDetails(NewsPost $post, Crawler $crawler): void
-    {
-        self::removeNodes($crawler, '//br');
-        self::removeNodes($crawler, '//div[@align="justify"]//b[1]');
-        self::removeNodes($crawler, '//div[@align="justify"]//img[1]');
-        if (! empty($post->image) === true) {
-            self::removeNodes($crawler, '//div[@align="justify"]//img[1]');
-        }
-        $fullTextBlock = $crawler->filterXPath('//div[@align="justify"]')->getNode(0);
-        foreach ($fullTextBlock->childNodes as $node) {
-            self::parseNode($post, $node);
-        }
-    }
 
     /**
      * Function parse single children of full text block and appends NewsPostItems founded
      * 
      * @param NewsPost $post
      * @param DOMNode $node
-     * 
+     *
      * @return void
      */
     public static function parseNode(NewsPost $post, DOMNode $node): void
     {
+        if ($node->nodeName === "b") {
+            return;
+        }
         //Get non-empty images from nodes
         if (self::isImageType($node)) {
             $imageLink = $node->getAttribute('src');
@@ -240,10 +156,16 @@ class RusskiyVestnikParser implements ParserInterface
             if ($imageLink === '') {
                 return;
             }
-
+            if ($imageLink === 'images/2.gif') {
+                return;
+            }
             $imageLink = UriResolver::resolve($imageLink, static::SITE_URL);
 
-            $post->addItem(new NewsPostItem(NewsPostItem::TYPE_IMAGE, $node->getAttribute('alt'), $imageLink));
+            if ($post->image === null) {
+                $post->image = $imageLink;
+            } else {
+                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_IMAGE, $node->getAttribute('alt'), $imageLink));
+            }
             return;
         }
 
@@ -262,14 +184,13 @@ class RusskiyVestnikParser implements ParserInterface
             if (self::hasText($node)) {
                 $textContent = $node->textContent;
                 $textContent = self::cleanText($textContent);
-                if (strlen($post->description) >= strlen($textContent)) {
-                    if (preg_match('/' . preg_quote($textContent, '/') . '/', $post->description)) {
-                        return;
-                    }
-                }
 
                 if (self::hasActualText($textContent) === true) {
-                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                    if ($post->description === "EMPTY") {
+                        $post->description = $textContent;
+                    } else {
+                        $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                    }
                 }
             }
             return;
@@ -288,14 +209,14 @@ class RusskiyVestnikParser implements ParserInterface
         if ($needRecursive === false) {
             $textContent = $node->textContent;
             $textContent = self::cleanText($textContent);
-            if (strlen($post->description) >= strlen($textContent)) {
-                if (preg_match('/' . preg_quote($textContent, '/') . '/', $post->description)) {
-                    return;
-                }
-            }
+
 
             if (self::hasActualText($textContent) === true) {
-                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                if ($post->description === "EMPTY") {
+                    $post->description = $textContent;
+                } else {
+                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                }
             }
         } else {
             foreach($node->childNodes as $child) {
