@@ -303,7 +303,7 @@ class MignewsParser implements ParserInterface
      */
     protected static function hasActualText(?string $text): bool
     {
-        return trim($text, "⠀ \t\n\r\0\x0B\xC2\xA0") !== '';
+        return trim($text, "⠀ \t\n\r\0\x0B\xC2\xA0.,") !== '';
     }
 
     /**
