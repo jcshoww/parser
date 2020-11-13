@@ -29,7 +29,7 @@ class Ngs55Parser implements ParserInterface
     public const DUMMY_SCREEN_RESOLUTION_IMAGE_PATTERN_REPLACE_VALUE = '_710.';
 
     /** @var array */
-    protected static $parsedEntities = ['a', 'img', 'blockquote', 'figcaption', 'iframe'];
+    protected static $parsedEntities = ['img', 'blockquote', 'figcaption', 'iframe'];
 
     /** @var array */
     protected static $preservedItemTypes = ['images', 'iframe'];
@@ -73,6 +73,7 @@ class Ngs55Parser implements ParserInterface
             try {
                 $post = self::getPostDetail($item);
             } catch (Exception $e) {
+                error_log($e->getMessage());
                 continue;
             }
 
@@ -122,23 +123,63 @@ class Ngs55Parser implements ParserInterface
         $curlResult = preg_replace('/\<\/nobr\>/', '', $curlResult);
         $crawler = new Crawler($curlResult);
 
-        self::fillScriptData($curlResult);
-
-        self::removeNodes($crawler, '//comment() | //br | //hr | //script | //link | //style');
-        self::removeNodes($crawler, '//div[contains(@class, "H3cf")]//div[@id="record-header"]');
-        self::removeNodes($crawler, '//div[contains(@class, "H3cf")]//figure[1]//picture');
-        self::removeNodes($crawler, '//div[contains(@class, "H3cf")]//div[contains(@class, "Pdf")]');
-        self::removeNodes($crawler, '//div[contains(@class, "H3cf")]//div[contains(@class, "IHakv")]');
-        self::removeNodes($crawler, '//div[contains(@class, "H3cf")]//div[contains(@class, "J5apr")]');
-
-        $detailPage = $crawler->filterXpath('//div[contains(@class, "H3cf")]//div[1]')->getNode(0);
-
-        // parse detail page for texts
-        foreach ($detailPage->childNodes as $node) {
-            self::parseNode($post, $node);
+        $initialState = '';
+        $scripts = $crawler->filterXPath('//script');
+        foreach ($scripts as $script) {
+            if (preg_match('/window.__INITIAL_STATE/', $script->textContent)) {
+                $initialState = $script->textContent;
+                break;
+            }
         }
-        
-        self::appendVideoFromScript($post);
+
+
+        $initialState = preg_replace('/window\.\_\_INITIAL_STATE\_\_\=/', '', $initialState);
+        $initialState = preg_replace('/\;\(function\(\).*$/', '', $initialState);
+        $initialState = json_decode($initialState, true);
+
+
+        $nodeList = $initialState['data']['data']['article']["data"]["text"];
+        // parse detail page for texts
+        foreach ($nodeList as $node) {
+            if ($node['type'] === 'images') {
+                $url = $node['value']['url'];
+
+                $url = preg_replace('/##/', self::DUMMY_SCREEN_RESOLUTION_IMAGE_PATTERN_REPLACE_VALUE, $url);
+                $imageLink = UriResolver::resolve($url, static::SITE_URL);
+                if ($post->image === null) {
+                    $post->image = $imageLink;
+                } else {
+                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_IMAGE, $node['value']['description'], $imageLink));
+                }
+            }
+
+            if ($node['type'] === 'iframe') {
+                $link = $node['media']['src'];
+
+
+                if ($link && $link !== '') {
+                    if ($ytVideoId = self::getYoutubeVideoId($link)) {
+                        $post->addItem(new NewsPostItem(NewsPostItem::TYPE_VIDEO, null, null, null, null, $ytVideoId));
+                        continue;
+                    }
+                    if (preg_match('/vk\.com/', $link)) {
+                        $link = preg_replace('/^(\/\/)(.*)/', 'https://$2', html_entity_decode($link));
+                        if (filter_var($link, FILTER_VALIDATE_URL)) {
+                            $post->addItem(new NewsPostItem(NewsPostItem::TYPE_LINK, null, null, $link));
+                        }
+                    }
+                }
+            }
+
+
+            if ($node["type"] === "text" && $node["value"] !== null) {
+                $bodyNode = new Crawler($node["value"]);
+                if ($bodyNode->count() === 0) {
+                    continue;
+                }
+                self::parseNode($post, $bodyNode->getNode(0));
+            }
+        }
 
         return $post;
     }
