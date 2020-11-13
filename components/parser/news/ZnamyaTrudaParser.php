@@ -26,7 +26,7 @@ class ZnamyaTrudaParser implements ParserInterface
     public const SITE_URL = 'https://gazeta-trud.ru';
 
     /** @var array */
-    protected static $parsedEntities = ['a', 'img', 'blockquote', 'iframe', 'video'];
+    protected static $parsedEntities = ['img', 'blockquote', 'iframe', 'video'];
 
     /**
      * @inheritDoc
