@@ -51,7 +51,7 @@ class NsjParser implements ParserInterface
     public static function getNewsData(int $limit = 20): array
     {
         /** Вырубаем нотисы */
-        error_reporting(E_ALL & ~E_NOTICE);
+//        error_reporting(E_ALL & ~E_NOTICE);
 
         $pageNum = 0;
         $posts = [];
@@ -68,7 +68,9 @@ class NsjParser implements ParserInterface
             self::removeNodes($newsListCrawler, '//style | //comment() | //head | //script');
             self::removeNodes($newsListCrawler, '//body//*[4]/preceding-sibling::table');
             $news = $newsListCrawler->filterXPath('//table[1]//td[2]//table//td');
-
+            if($news->count() === 0){
+                throw new Exception("Пустой список новостей");
+            }
             foreach ($news as $item) {
                 $post = self::getPostDetail($item);
 
@@ -77,6 +79,9 @@ class NsjParser implements ParserInterface
             }
 
             $pageNum++;
+            if($pageNum > 5){
+                break;
+            }
         }
 
         return $posts;
