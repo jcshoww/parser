@@ -118,7 +118,7 @@ class MkSamaraParser implements ParserInterface
 
     /**
      * Function parse intresting post from table content
-     * 
+     *
      * @param Element $item
      * @return void
      */
@@ -266,7 +266,7 @@ class MkSamaraParser implements ParserInterface
             $post->image = $imageUrl;
         }
 
-        foreach ($crawler->getNode(0)->childNodes as $item) {
+        foreach ($crawler->filter("div.article__body")->getNode(0)->childNodes as $item) {
             self::parseNode($post, $item);
         }
     }
