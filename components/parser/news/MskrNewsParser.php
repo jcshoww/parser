@@ -28,7 +28,7 @@ class MskrNewsParser implements ParserInterface
     public const SITE_URL = 'https://mskrnews.ru';
 
     /** @var array */
-    protected static $parsedEntities = ['a', 'img', 'blockquote'];
+    protected static $parsedEntities = ['br', 'a', 'img', 'blockquote'];
 
     /** @var int */
     protected static $parsedCount = 0;
@@ -49,7 +49,7 @@ class MskrNewsParser implements ParserInterface
      * @return array
      * @throws Exception
      */
-    public static function getNewsData(int $limit = 40): array
+    public static function getNewsData(int $limit = 10): array
     {
         /** Вырубаем нотисы */
         error_reporting(E_ALL & ~E_NOTICE);
@@ -103,9 +103,6 @@ class MskrNewsParser implements ParserInterface
         $createdAt->setTimezone(new DateTimeZone('UTC'));
         $createdAt = $createdAt->format('c');
 
-        /** Get description */
-        $description = $itemCrawler->filterXPath('//description')->text();
-        $description = self::cleanText(strip_tags($description));
 
         /** Detail page parser creation */
         $curl = Helper::getCurl();
@@ -115,14 +112,13 @@ class MskrNewsParser implements ParserInterface
         $curlResult = preg_replace('/(.*)(\<section class\=\"main_content\"\>)(.*)(<\/section)(.*)/', '$3', $curlResult);
         $crawler = new Crawler($curlResult);
 
-        self::removeNodes($crawler, '//comment() | //br | //hr | //script | //style | //head | //noscript | //header | //footer');
+        self::removeNodes($crawler, '//comment() | //hr | //script | //style | //head | //noscript | //header | //footer');
         self::removeNodes($crawler, '//div[@id="custom_html-3"]');
         self::removeNodes($crawler, '//div[contains(@class, "news_sidebar")]');
         self::removeNodes($crawler, '//header[contains(@class, "entry-header")]');
 
         //Get image if exists
         $picture = null;
-        //print_r($crawler->getNode(0)->ownerDocument->saveHTML()); die();
         $imageBlock = $crawler->filterXpath('//div[contains(@class,"blog_item")]//*[1]//img[1]')->getNode(0);
         if (! empty($imageBlock) === true) {
             $picture = self::cleanUrl($imageBlock->getAttribute('src'));
@@ -133,7 +129,7 @@ class MskrNewsParser implements ParserInterface
         }
 
         /** @var NewsPost */
-        $post = new NewsPost(static::class, $title, $description, $createdAt, $link, $picture);
+        $post = new NewsPost(static::class, $title, "EMPTY", $createdAt, $link, $picture);
 
         $detailPage = $crawler->filterXpath('//div[contains(@class, "blog_item")]')->getNode(0);
 
@@ -200,14 +196,14 @@ class MskrNewsParser implements ParserInterface
         if (self::isText($node)) {
             if ($skipText === false && self::hasText($node)) {
                 $textContent = self::cleanText($node->textContent);
-                if (strlen($post->description) >= strlen($textContent)) {
-                    if (preg_match('/' . preg_quote($textContent, '/') . '/', $post->description)) {
-                        return;
-                    }
-                }
+
 
                 if (self::hasActualText($textContent) === true) {
-                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                    if($post->description === "EMPTY"){
+                        $post->description = $textContent;
+                    }else {
+                        $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                    }
                 }
             }
             return;
@@ -225,14 +221,13 @@ class MskrNewsParser implements ParserInterface
         //Get entire node text if we not need to parse any special entities, go recursive otherwise
         if ($skipText === false && $needRecursive === false) {
             $textContent = self::cleanText($node->textContent);
-            if (strlen($post->description) >= strlen($textContent)) {
-                if (preg_match('/' . preg_quote($textContent, '/') . '/', $post->description)) {
-                    return;
-                }
-            }
 
             if (self::hasActualText($textContent) === true) {
-                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                if($post->description === "EMPTY"){
+                    $post->description = $textContent;
+                }else {
+                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+                }
             }
         } else {
             foreach($node->childNodes as $child) {
