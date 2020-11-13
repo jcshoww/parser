@@ -26,10 +26,10 @@ class NgsNovosibirskParser implements ParserInterface
 
     public const SITE_URL = 'https://ngs.ru';
 
-    public const DUMMY_SCREEN_RESOLUTION_IMAGE_PATTERN_REPLACE_VALUE = '_710.';
+    public const DUMMY_SCREEN_RESOLUTION_IMAGE_PATTERN_REPLACE_VALUE = '_1280.';
 
     /** @var array */
-    protected static $parsedEntities = ['a', 'img', 'blockquote', 'figcaption', 'iframe'];
+    protected static $parsedEntities = ['img', 'blockquote', 'figcaption', 'iframe'];
 
     /** @var array */
     protected static $preservedItemTypes = ['images', 'iframe'];
@@ -106,10 +106,7 @@ class NgsNovosibirskParser implements ParserInterface
 
         //Get image if exists
         $picture = null;
-        $imageBlock = $item->enclosure;
-        if (! empty($imageBlock) === true) {
-            $picture = self::cleanUrl($imageBlock->attributes()->url);
-        }
+
 
         /** @var NewsPost */
         $post = new NewsPost(static::class, $title, $description, $createdAt, $link, $picture);
@@ -117,26 +114,65 @@ class NgsNovosibirskParser implements ParserInterface
         /** Detail page parser creation */
         $curl = Helper::getCurl();
         $curlResult = $curl->get($link);
+
         $crawler = new Crawler($curlResult);
-
-        self::fillScriptData($curlResult);
-
-        self::removeNodes($crawler, '//comment() | //br | //hr | //script | //link | //style | //label | //button');
-        self::removeNodes($crawler, '//div[contains(@class, "G3cf")]//div[@id="record-header"]');
-        self::removeNodes($crawler, '//div[contains(@class, "G3cf")]//figure[1]//picture');
-        self::removeNodes($crawler, '//div[contains(@class, "G3cf")]//div[contains(@class, "I-amj")]');
-        self::removeNodes($crawler, '//div[contains(@class, "G3cf")]//div[contains(@class, "G9agd")]');
-        self::removeNodes($crawler, '//div[contains(@class, "G3cf")]//div[@number]');
-
-        $detailPage = $crawler->filterXpath('//div[contains(@class, "G3cf")]')->getNode(0);
-
-        // parse detail page for texts
-        foreach ($detailPage->childNodes as $node) {
-            self::parseNode($post, $node);
+        $initialState = '';
+        $scripts = $crawler->filterXPath('//script');
+        foreach ($scripts as $script) {
+            if (preg_match('/window.__INITIAL_STATE/', $script->textContent)) {
+                $initialState = $script->textContent;
+                break;
+            }
         }
 
-        self::appendVideoFromScript($post);
-        self::appendPostFeed($post);
+
+        $initialState = preg_replace('/window\.\_\_INITIAL_STATE\_\_\=/', '', $initialState);
+        $initialState = preg_replace('/\;\(function\(\).*$/', '', $initialState);
+        $initialState = json_decode($initialState, true);
+
+
+        $nodeList = $initialState['data']['data']['article']["data"]["text"];
+        // parse detail page for texts
+        foreach ($nodeList as $node) {
+            if ($node['type'] === 'images') {
+                $url = $node['value']['url'];
+
+                $url = preg_replace('/##/', self::DUMMY_SCREEN_RESOLUTION_IMAGE_PATTERN_REPLACE_VALUE, $url);
+                $imageLink = UriResolver::resolve($url, static::SITE_URL);
+                if ($post->image === null) {
+                    $post->image = $imageLink;
+                } else {
+                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_IMAGE, $node['value']['description'], $imageLink));
+                }
+            }
+
+            if ($node['type'] === 'iframe') {
+                $link = $node['media']['src'];
+
+
+                if ($link && $link !== '') {
+                    if ($ytVideoId = self::getYoutubeVideoId($link)) {
+                        $post->addItem(new NewsPostItem(NewsPostItem::TYPE_VIDEO, null, null, null, null, $ytVideoId));
+                        continue;
+                    }
+                    if (preg_match('/vk\.com/', $link)) {
+                        $link = preg_replace('/^(\/\/)(.*)/', 'https://$2', html_entity_decode($link));
+                        if (filter_var($link, FILTER_VALIDATE_URL)) {
+                            $post->addItem(new NewsPostItem(NewsPostItem::TYPE_LINK, null, null, $link));
+                        }
+                    }
+                }
+            }
+
+
+            if ($node["type"] === "text" && $node["value"] !== null) {
+                $bodyNode = new Crawler($node["value"]);
+                if ($bodyNode->count() === 0) {
+                    continue;
+                }
+                self::parseNode($post, $bodyNode->getNode(0));
+            }
+        }
 
         return $post;
     }
@@ -244,129 +280,6 @@ class NgsNovosibirskParser implements ParserInterface
         }
     }
 
-    /**
-     * Function parses detail page curl result and fill script data with data from json
-     * need to parse js-hide data from article
-     * 
-     * @param string $curlResult
-     */
-    protected static function fillScriptData(string $curlResult): void
-    {
-        $crawler = new Crawler($curlResult);
-        $initialState = '';
-        $scripts = $crawler->filterXPath('//script');
-        foreach ($scripts as $script) {
-            if (preg_match('/window.__INITIAL_STATE/', $script->textContent)) {
-                $initialState = $script->textContent;
-                break;
-            }
-        }
-        $initialState = preg_replace('/window\.\_\_INITIAL_STATE\_\_\=/', '', $initialState);
-        $initialState = preg_replace('/\;\(function\(\).*$/', '', $initialState);
-        $initialState = json_decode($initialState, true);
-        self::$itemPostFeed = $initialState['data']['data']['article']['data']['posts'];
-        $initialState = $initialState['data']['data']['article']['data']['text'];
-        $itemTypes = self::$preservedItemTypes;
-        self::$scriptData = array_values(array_filter($initialState, function ($item) use ($itemTypes) {
-            return in_array($item['type'], $itemTypes);
-        }));
-        array_shift(self::$scriptData);
-    }
-
-    /**
-     * Function parses out image url from script data
-     * 
-     * @return string
-     */
-    protected static function getImageUrlFromScript(): string
-    {
-        $indexToRemove = null;
-        foreach (self::$scriptData as $index => $value) {
-            if ($value['type'] === 'images') {
-                $indexToRemove = $index;
-                break;
-            }
-        }
-        if ($indexToRemove === null) {
-            return '';
-        }
-        $url = self::$scriptData[$index]['value']['url'];
-        unset(self::$scriptData[$index]);
-        return preg_replace('/##/', self::DUMMY_SCREEN_RESOLUTION_IMAGE_PATTERN_REPLACE_VALUE, $url);
-    }
-
-    /**
-     * Function parses out video url from script data and appends it to post
-     * 
-     * @param NewsPost $post
-     * 
-     * @return void
-     */
-    protected static function appendVideoFromScript(NewsPost $post): void
-    {
-        foreach (self::$scriptData as $index => $value) {
-            if ($value['type'] === 'iframe') {
-                $link = self::$scriptData[$index]['media']['src'];
-                unset(self::$scriptData[$index]);
-
-                if ($link && $link !== '') {
-                    if ($ytVideoId = self::getYoutubeVideoId($link)) {
-                        $post->addItem(new NewsPostItem(NewsPostItem::TYPE_VIDEO, null, null, null, null, $ytVideoId));
-                        continue;
-                    }
-                    if (preg_match('/vk\.com/', $link)) {
-                        $link = preg_replace('/^(\/\/)(.*)/', 'https://$2', html_entity_decode($link));
-                        if (filter_var($link, FILTER_VALIDATE_URL)) {
-                            $post->addItem(new NewsPostItem(NewsPostItem::TYPE_LINK, null, null, $link));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Function parses out data from related posts feed
-     * 
-     * @param NewsPost $post
-     * 
-     * @return void
-     */
-    protected static function appendPostFeed(NewsPost $post): void
-    {
-        foreach (self::$itemPostFeed as $value) {
-            foreach ($value['data'] as $data) {
-                if ($data['type'] === 'text') {
-                    $text = self::cleanText(strip_tags($data['value']['text']));
-                    if (! empty($text) === true) {
-                        $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $text));
-                    }
-                }
-                if ($data['type'] === 'images') {
-                    $imageLink = preg_replace('/##/', self::DUMMY_SCREEN_RESOLUTION_IMAGE_PATTERN_REPLACE_VALUE, $data['value']['url']);;
-                    $imageLink = self::cleanUrl($imageLink);
-
-                    if ($imageLink === '') {
-                        continue;
-                    }
-
-                    $alt = self::cleanText($data['value']['description']);
-                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_IMAGE, $alt, $imageLink));
-                }
-                if ($data['type'] === 'videos') {
-                    $imageLink = preg_replace('/##/', self::DUMMY_SCREEN_RESOLUTION_IMAGE_PATTERN_REPLACE_VALUE, $data['value']['url']);;
-                    $imageLink = self::cleanUrl($imageLink);
-
-                    if ($imageLink === '') {
-                        continue;
-                    }
-
-                    $alt = self::cleanText($data['value']['description']);
-                    $post->addItem(new NewsPostItem(NewsPostItem::TYPE_IMAGE, $alt, $imageLink));
-                }
-            }
-        }
-    }
 
     /**
      * Function cleans text from bad symbols
@@ -409,7 +322,7 @@ class NgsNovosibirskParser implements ParserInterface
      */
     protected static function hasActualText(?string $text): bool
     {
-        return trim($text, "⠀ \t\n\r\0\x0B\xC2\xA0") !== '';
+        return trim($text, "⠀ \t\n\r\0\x0B\xC2\xA0.,") !== '';
     }
 
     /**
@@ -502,25 +415,4 @@ class NgsNovosibirskParser implements ParserInterface
         return $matches[5] ?? null;
     }
 
-    /**
-     * Function remove useless specified nodes
-     * 
-     * @param Crawler $crawler
-     * @param string $xpath
-     * @param int|null $count
-     * 
-     * @return void
-     */
-    protected static function removeNodes(Crawler $crawler, string $xpath, ?int $count = null): void
-    {
-        $crawler->filterXPath($xpath)->each(function (Crawler $crawler, int $key) use ($count) {
-            if ($count !== null && $key === $count) {
-                return;
-            }
-            $domNode = $crawler->getNode(0);
-            if ($domNode) {
-                $domNode->parentNode->removeChild($domNode);
-            }
-        });
-    }
 } 
