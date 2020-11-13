@@ -175,7 +175,7 @@ class VyborNaroda2017Parser implements ParserInterface
                     $post->addItem(new NewsPostItem(NewsPostItem::TYPE_VIDEO, null, null, null, null, $ytVideoId));
                     return;
                 }
-                if (! preg_match('/http[s]?/', $link)) {
+                if (!preg_match('/http[s]?/', $link)) {
                     $link = UriResolver::resolve($link, static::SITE_URL);
                 }
                 if (filter_var($link, FILTER_VALIDATE_URL)) {
@@ -184,6 +184,13 @@ class VyborNaroda2017Parser implements ParserInterface
                     $post->addItem(new NewsPostItem(NewsPostItem::TYPE_LINK, $linkText, null, $link));
                 }
             }
+
+            $textContent = self::cleanText($node->textContent);
+
+            if (self::hasActualText($textContent) === true) {
+                $post->addItem(new NewsPostItem(NewsPostItem::TYPE_TEXT, $textContent));
+            }
+
             return;
         }
 
@@ -320,7 +327,7 @@ class VyborNaroda2017Parser implements ParserInterface
      */
     protected static function isLinkType(DOMNode $node): bool
     {
-        return isset($node->tagName) === true && $node->tagName === 'a';
+        return isset($node->nodeName) === true && $node->nodeName === 'a';
     }
 
     /**
