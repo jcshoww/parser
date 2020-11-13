@@ -447,7 +447,7 @@ class GlavnyTvParser implements ParserInterface
 
     private function hasText(DOMNode $node): bool
     {
-        return trim($node->textContent, "⠀ \t\n\r\0\x0B\xC2\xA0") !== '';
+        return trim($node->textContent, "⠀ \t\n\r\0\x0B\xC2\xA0.,") !== '';
     }
 
     private function isQuoteType(DOMNode $node): bool
