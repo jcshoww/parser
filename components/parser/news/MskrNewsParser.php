@@ -11,7 +11,6 @@ use DateTimeZone;
 use DOMElement;
 use DOMNode;
 use Exception;
-use lanfix\parser\Parser;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\DomCrawler\UriResolver;
 
@@ -60,8 +59,10 @@ class MskrNewsParser implements ParserInterface
             /** Get RSS news list */
             $curl = Helper::getCurl();
             $newsList = $curl->get(static::SITE_URL . "/feed?paged=$pageNum");
-            if (! $newsList) {
-                throw new Exception('Can not get news data');
+            if (!$newsList && self::$parsedCount !== 0) {
+                break;
+            } elseif (!$newsList) {
+                throw new Exception('Не получено данных с иcточника: ' . static::SITE_URL . "/feed?paged=$pageNum");
             }
 
             /** Parse news from RSS */
