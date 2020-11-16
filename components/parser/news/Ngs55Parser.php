@@ -108,10 +108,7 @@ class Ngs55Parser implements ParserInterface
 
         //Get image if exists
         $picture = null;
-        $imageBlock = $item->enclosure;
-        if (! empty($imageBlock) === true) {
-            $picture = self::cleanUrl($imageBlock->attributes()->url);
-        }
+
 
         /** @var NewsPost */
         $post = new NewsPost(static::class, $title, $description, $createdAt, $link, $picture);
